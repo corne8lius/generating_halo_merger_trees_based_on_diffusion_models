@@ -649,61 +649,28 @@ def transform_diffusion_image(images, d_thresh = 0.3, m_tresh = 0.5, s_low = 0.1
     
     return new_images
 
-def check_branch_length(dataset):
-    one_branch = []
-    two_branch = []
-    three_branch = []
-    four_branch = []
-    five_branch = []
-    six_branch = []
-    seven_branch = []
-    eight_branch = []
-    nine_branch = []
-    ten_branch = []
-
-    for datapoint in dataset:
-        one_channel = datapoint[1]
-        branches = torch.count_nonzero(one_channel, dim=0)
-        num_branch = torch.count_nonzero(branches, dim=0)
-        if num_branch == 1:
-            one_branch.append(datapoint)
-        elif num_branch == 2:
-            two_branch.append(datapoint)
-        elif num_branch == 3:
-            three_branch.append(datapoint)
-        elif num_branch == 4:
-            four_branch.append(datapoint)
-        elif num_branch == 5:
-            five_branch.append(datapoint)
-        elif num_branch == 6:
-            six_branch.append(datapoint)
-        elif num_branch == 7:
-            seven_branch.append(datapoint)
-        elif num_branch == 8:
-            eight_branch.append(datapoint)
-        elif num_branch == 9:
-            nine_branch.append(datapoint)
-        elif num_branch == 10:
-            ten_branch.append(datapoint)
-
-    total = [one_branch, two_branch, three_branch, four_branch, five_branch,
-             six_branch, seven_branch, eight_branch, nine_branch, ten_branch]
-
-    total_im = 0
-    for i, branch_list in enumerate(total):
-        total_im += len(branch_list)
-        print(f"number of images with {i + 1} branches is: {len(branch_list)}")
-
-    print(f"double check that all images are counted: total images is {total_im} = {dataset.shape[0]}")
     
 def check_zeros_same_index(image):
+    # separate variables
     dist = image[:, 0]
     mass = image[:, 1]
     subh = image[:, 2]
+    
+    # replace all nonzero values with 1
+    dist = torch.where(dist != 0, torch.tensor(1), dist)
+    mass = torch.where(mass != 0, torch.tensor(1), mass)
+    subh = torch.where(subh != 0, torch.tensor(1), subh)
+    
+    # create new tensor which is the sum of nonzero and zero values
+    new_tensor = dist + mass + subh
+    
+    # check new tensor, main branch should be 0.0 or 2.0 (since distance should be 0.0), other spots should be 0.0 or 3.0
+    consistency_sub = torch.logical_or(new_tensor[:, :, 1:] == 0.0, new_tensor[:, :, 1:] == 3.0)
+    consistency_main = torch.logical_or(new_tensor[:, :, 0] == 0.0, new_tensor[:, :, 0] == 2.0).unsqueeze(2)
+    consistency = torch.cat([consistency_main, consistency_sub], dim = 2)
 
-    same_zero_indices = (dist == 0) & (mass == 0) & (subh == 0)
 
-    equal = same_zero_indices.sum() / (subh == 0).sum()
+    equal = consistency.sum() / (image.shape[-2] * image.shape[-1])
     
     return equal
 
@@ -778,18 +745,17 @@ def check_last_descendant(image):
     subh = image[0, 2, -1, 0] != 0.0
     
     exist = mass and subh
-
-    only_last = (sum(image[0, 1, -1, :]) == image[0, 1, -1, 0]) and (sum(image[0, 2, -1, :]) == image[0, 2, -1, 0])
-
-    exist_and_only = exist and only_last
     
-    return exist_and_only
+    no_other_progenitor = image[:, :, -1, 1:].sum().item() == 0.0
+    
+    last_descendant = exist and no_other_progenitor
     
     
+    return last_descendant
     
     
 def check_consistency(images, print_index = False):
-    
+
     consistant_images = []
     inconsistent_images = []
     num_images = images.shape[0]
@@ -819,6 +785,7 @@ def check_consistency(images, print_index = False):
         # check no gaps between subhalo in same branch
         inconsistent_gap, where_gap_bran, where_gap_row = check_gaps_in_branch(image)
         
+        # check that last descendant exist for image
         last_descendant_exist = check_last_descendant(image)
 
         # check if image is overall consistant and add to consistant images
@@ -877,6 +844,7 @@ def check_consistency(images, print_index = False):
     
         print("\n")
         print(f"Percentage of consistant images = {perc:.2f}%")
+        print("\n")
         
     if len(consistant_images) == 0:
         print("\n")
@@ -906,7 +874,17 @@ def check_consistency(images, print_index = False):
     return consistant_images, inconsistent_images
 
 
-def check_branch_length(dataset, printer = True):
+def check_branch_length(dataset, printer = True, print_full = True):
+    """
+    separate the dataset into subdatasets given the number of branches
+
+    count the merger trees given the number of branches they contain
+
+    produces the complexity metrics:
+        - average number of branches
+        - average branch length
+        - average number of nonzero entries (progenitors)
+    """
     one_branch = []
     two_branch = []
     three_branch = []
@@ -951,10 +929,12 @@ def check_branch_length(dataset, printer = True):
     for i, branch_list in enumerate(total):
         total_im += len(branch_list)
         total_branches += (i + 1) * len(branch_list)
+        if printer and print_full:
+            print(f"number of images with {i + 1} branches is: {len(branch_list)}")
 
     avg_branch = total_branches / total_im
     if printer:
-        print(f"\naverage number of branches in the image = {avg_branch:.2f} vs. 7.12 in training data")
+        print(f"\naverage number of branches in the image = {avg_branch:.2f}")
     
     nonzero_indices = torch.nonzero(dataset[:, 1].flatten())
     nonzero_value = len(dataset[:, 1].flatten()[nonzero_indices[:, 0]])
@@ -962,8 +942,8 @@ def check_branch_length(dataset, printer = True):
     average_nonzero_entries = nonzero_value / total_im 
     avg_branch_length = nonzero_value / total_branches
     if printer:
-        print(f"Average branch length = {avg_branch_length:.2f} vs. 9.06 in training data")
-        print(f"Number of nonzero entries (progenitors) = {average_nonzero_entries:.2f} vs. 64.55 in training data")
+        print(f"Average branch length = {avg_branch_length:.2f}")
+        print(f"Number of nonzero entries (progenitors) = {average_nonzero_entries:.2f}")
         print("\n\n", flush=True)
 
     return total
@@ -1211,32 +1191,6 @@ def create_generated_images(generator, latent_dim, reference_shape, noise_unifor
     print(f"generated {images.shape[0]} images")
     
     return images
-
-"""
-def analyze_data(generated_data_path, comparing_data_path):
-    generated_data = torch.load(generated_data_path, map_location = "cpu")
-    original_data = torch.load(comparing_data_path)
-    if original_data.shape[0] == 3:
-        original_data = original_data.permute(1, 0, 2, 3)
-    
-    print("\nPlot images:")
-    images = plot_images(generated_data, 10)
-    
-    print("\nCheck consistency:")
-    consistant, inconsistant = check_consistency(generated_data)
-    
-    print("\nCheck number of branches of all generated images:")
-    check_branch_length(generated_data)
-    
-    if len(consistant) != 0:
-        print("\nCheck number of branches of consistent generated images:")
-        check_branch_length(consistant)
-    
-    print("\nMass KS test against training data:")
-    ks, ks_nonzero = ks_test(original_data, generated_data, dim = 1)
-    
-    return generated_data, consistant, inconsistant
-"""
 
 def minmax_norm(img):
     minmax_data = []
@@ -1734,3 +1688,91 @@ def plot_side_by_side(dataset, save = False, name = "test"):
         print(f"saved fig {name}")
         
     plt.show()
+
+
+def draw_sample_given_number_branch(dataset, num_branches):
+    """
+    Draw a random sample from a given dataset based on the desired number of branches 
+    """
+
+    total = check_branch_length(dataset, printer = False)
+    merger_trees_given_branch_length = total[num_branches - 1]
+    i = random.randint(0, len(merger_trees_given_branch_length))
+    print(f"Sampling a generated merger tree with {num_branches} branches")
+    print(f"\nPicked random sample number {i} out of {len(merger_trees_given_branch_length)} potential samples")
+    sample = merger_trees_given_branch_length[i].unsqueeze(0)
+
+    return sample
+
+def draw_sample_given_complexity(dataset, higher_than, threshold):
+    """
+    Draw a random sample from a given dataset based on the desired complexity
+    """
+    attempts = len(dataset)
+    if attempts > 10000:
+        attempts = 10000
+    for attempt in range(attempts):
+        i = random.randint(0, len(dataset) - 1)
+
+        nonzero_indices = torch.nonzero(dataset[i, 1].flatten())
+        nonzero_value = len(dataset[i, 1].flatten()[nonzero_indices[:, 0]])
+
+        if higher_than:
+            if nonzero_value >= threshold:
+                print(f"Generating merger tree with higher than {threshold} in complexity")
+                print(f"\nPicked random sample number {i} out of {len(dataset)} potential samples")
+                sample = dataset[i]
+                check_branch_length(sample.unsqueeze(0))
+                return sample
+            else:
+                continue
+
+        elif not higher_than:
+            if nonzero_value <= threshold:
+                print(f"Generating merger tree with less than {threshold} in complexity")
+                print(f"\nPicked random sample number {i} out of {len(dataset)} potential samples")
+                sample = dataset[i]
+                check_branch_length(sample.unsqueeze(0), True, False)
+                return sample
+            else:
+                continue
+        
+    print("Could not find a tree with the desired complexity")
+
+    print("Generating random sample:")
+    sample = dataset[i]
+    return sample
+    
+
+def draw_sample_given_branch_and_complexity(dataset, num_branches = None, threshold = None, higher_than = False):
+    """
+    Draw a random sample from a given dataset based on the desired number of branches and the complexity
+    """
+
+    if num_branches is None and threshold is None:
+        print("You must specify either a given number of branches or a threshold, generating random merger tree without any specifications:")
+        i = random.randint(0, len(dataset))
+        sample = dataset[i]
+        return sample.unsqueeze(0)
+
+    elif num_branches is not None:
+        print(f"Sampling a generated merger tree with {num_branches} branches")
+
+        total = check_branch_length(dataset, printer = False, print_full = False)
+        merger_trees_given_branch_length = total[num_branches - 1]
+
+        if threshold is not None:
+            trees = torch.stack(merger_trees_given_branch_length)
+            
+            sample = draw_sample_given_complexity(trees, higher_than, threshold)
+
+            return sample.unsqueeze(0)
+        
+        elif threshold is None:
+            i = random.randint(0, len(merger_trees_given_branch_length))
+            sample = merger_trees_given_branch_length[i]
+            return sample.unsqueeze(0)
+        
+    elif threshold is not None:
+        sample = draw_sample_given_complexity(dataset, higher_than, threshold)
+        return sample.unsqueeze(0)
