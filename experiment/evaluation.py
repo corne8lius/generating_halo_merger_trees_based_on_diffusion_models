@@ -454,7 +454,7 @@ def variable_consistancy_check(dataset):
     print("-------------------------------------------------------------------------------------------------------", flush=True)
     subhalo_last_type_is_sattelite(subhalo)
     print("-------------------------------------------------------------------------------------------------------", flush=True)
-    
+
 
 def full_evaluation(generated_data, training_data = None):
     """
@@ -466,23 +466,26 @@ def full_evaluation(generated_data, training_data = None):
     """
     print("Analyzing generated merger tree dataset ...\n")
     print("=======================================================================================================", flush=True)
-    print("\t\t\t VARIABLE CONSISTENY CHECK")
-    print("=======================================================================================================", flush=True)
-    variable_consistancy_check(generated_data)
-    print("\n=======================================================================================================", flush=True)
-    if training_data is not None:
-        print("\t\t\t MASS KS STATISTIC CHECK")
-        statistic, p_value = ks_2samp(training_data[:, 1].flatten(), generated_data[:, 1].flatten())
-        print(f"\nMass KS Statistic: {statistic:.4f}")
-        print("\n=======================================================================================================", flush=True)
-    print("\t\t\t COMPLEXIY CHECK")
-    print("=======================================================================================================\n", flush=True)
-    avg_branch = check_branch_length(generated_data)
-    print("\n=======================================================================================================", flush=True)
     print("\t\t\t CONSISTENCY CHECK")
     print("=======================================================================================================", flush=True)
     consistent, inconsistent = check_consistency(generated_data)
-    print("=======================================================================================================", flush=True)
+    print("\n=======================================================================================================", flush=True)
+    if len(consistent) > 0:
+        print("\t\t\t VARIABLE CONSISTENY CHECK of consistent trees")
+        print("=======================================================================================================", flush=True)
+        variable_consistancy_check(consistent)
+        print("\n=======================================================================================================", flush=True)
+        if training_data is not None:
+            print("\t\t\t MASS KS STATISTIC CHECK of consistent trees")
+            print("=======================================================================================================", flush=True)
+            statistic, p_value = ks_2samp(training_data[:, 1].flatten(), consistent[:, 1].flatten())
+            print(f"\nMass KS Statistic: {statistic:.4f}")
+            print("\n=======================================================================================================", flush=True)
+        print("\t\t\t COMPLEXIY CHECK of consistent trees")
+        print("=======================================================================================================\n", flush=True)
+        avg_branch = check_branch_length(consistent)
+        print("=======================================================================================================", flush=True)
+        print("=======================================================================================================", flush=True)
     print("\nAnalyzing generated merger tree dataset done")
 
 
